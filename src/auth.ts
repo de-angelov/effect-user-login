@@ -1,89 +1,110 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { randomBytes } from "node:crypto";
 
-import { Database, type User } from "./database.js";
+import { CurrentUser, Database } from "./database.js";
+import {
+  LoginCredentials,
+  RegisterCredentials,
+  SessionToken
+} from "./domain.js";
 import {
   type AppError,
   type CryptoError,
-  DatabaseError,
-  InvalidCredentials,
-  ValidationError
+  type DatabaseError,
+  InvalidCredentials
 } from "./errors.js";
 import { PasswordHasher } from "./password.js";
 
-interface Session {
-  readonly user: User;
-  readonly token: string;
+export interface Session {
+  readonly user: CurrentUser;
+  readonly token: SessionToken;
 }
 
-const validate = (
-  username: string,
-  password: string
-): Effect.Effect<void, ValidationError> => {
-  if (username.length < 3) {
-    return Effect.fail(new ValidationError({ message: "Username must be at least 3 characters." }));
-  }
-
-  if (password.length < 8) {
-    return Effect.fail(new ValidationError({ message: "Password must be at least 8 characters." }));
-  }
-
-  return Effect.void;
-};
-
-const newSessionToken = (): string => randomBytes(32).toString("base64url");
+const newSessionToken = (): SessionToken =>
+  SessionToken.make(randomBytes(32).toString("base64url"));
 
 export class Auth extends Effect.Service<Auth>()("Auth", {
+  accessors: true,
   effect: Effect.gen(function* () {
     const database = yield* Database;
     const passwords = yield* PasswordHasher;
 
-    const createSession = (user: User): Effect.Effect<Session, DatabaseError> =>
-      Effect.gen(function* () {
+    const createSession = Effect.fn("Auth.createSession")(
+      function* (user: CurrentUser): Effect.fn.Return<Session, DatabaseError> {
         const token = newSessionToken();
         yield* database.createSession(token, user.id);
         return { user, token };
-      });
+      }
+    );
 
-    const register = (username: string, password: string): Effect.Effect<Session, AppError> =>
-      Effect.gen(function* () {
-        const name = username.trim();
-        yield* validate(name, password);
-        const passwordHash = yield* passwords.hash(password);
-        const user = yield* database.createUser(name, passwordHash);
-        return yield* createSession(user);
-      });
+    const register = Effect.fn("Auth.register")(
+      function* (
+        credentials: RegisterCredentials
+      ): Effect.fn.Return<Session, AppError> {
+        const passwordHash = yield* passwords.hash(credentials.password);
+        const user = yield* database.createUser(
+          credentials.username,
+          passwordHash
+        );
 
-    const login = (
-      username: string,
-      password: string
-    ): Effect.Effect<Session, InvalidCredentials | DatabaseError | CryptoError> =>
-      Effect.gen(function* () {
-        const user = yield* database.findUserByUsername(username.trim());
+        return yield* createSession({
+          id: user.id,
+          username: user.username
+        });
+      }
+    );
 
-        if (!user) {
-          return yield* Effect.fail(
-            new InvalidCredentials({ message: "Invalid username or password." })
-          );
+    const login = Effect.fn("Auth.login")(
+      function* (
+        credentials: LoginCredentials
+      ): Effect.fn.Return<
+        Session,
+        InvalidCredentials | DatabaseError | CryptoError
+      > {
+        const maybeUser = yield* database.findUserByUsername(
+          credentials.username
+        );
+
+        if (Option.isNone(maybeUser)) {
+          return yield* new InvalidCredentials({
+            message: "Invalid username or password."
+          });
         }
 
-        const valid = yield* passwords.verify(password, user.password_hash);
+        const user = maybeUser.value;
+        const valid = yield* passwords.verify(
+          credentials.password,
+          user.passwordHash
+        );
 
         if (!valid) {
-          return yield* Effect.fail(
-            new InvalidCredentials({ message: "Invalid username or password." })
-          );
+          return yield* new InvalidCredentials({
+            message: "Invalid username or password."
+          });
         }
 
-        return yield* createSession({ id: user.id, username: user.username });
-      });
+        return yield* createSession({
+          id: user.id,
+          username: user.username
+        });
+      }
+    );
 
-    const currentUser = (token: string): Effect.Effect<User | null, DatabaseError> =>
-      database.findUserBySession(token);
+    const currentUser = Effect.fn("Auth.currentUser")(
+      function* (
+        token: SessionToken
+      ): Effect.fn.Return<Option.Option<CurrentUser>, DatabaseError> {
+        return yield* database.findUserBySession(token);
+      }
+    );
 
-    const logout = (token: string): Effect.Effect<void, DatabaseError> =>
-      database.deleteSession(token);
+    const logout = Effect.fn("Auth.logout")(
+      function* (token: SessionToken): Effect.fn.Return<void, DatabaseError> {
+        yield* database.deleteSession(token);
+      }
+    );
 
     return { register, login, currentUser, logout };
-  })
+  }),
+  dependencies: [Database.Default, PasswordHasher.Default]
 }) {}

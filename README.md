@@ -11,17 +11,19 @@ the same small application, implemented with a different effect system and web s
 
 - Server-rendered HTML pages with type-safe JSX templates
 - Registration and login forms
+- Schema-validated input with branded domain types
 - Session cookies backed by PostgreSQL
 - A protected `/secret` route
 - Password hashing with Node's `scrypt`
-- Effect services and layers for the database, password hashing, and auth logic
+- Effect services, layers, and typed SQL queries
 
 ## Stack
 
 - **TypeScript** — typed JavaScript
-- **Effect** — typed effects, dependency injection through layers, and error handling
+- **Effect** — typed effects, dependency injection through layers, `Schema`, and error handling
 - **@effect/platform** — HTTP server and router
-- **@effect/sql-pg** — PostgreSQL client for Effect SQL
+- **@effect/sql** — typed SQL queries with `Model` and `SqlSchema`
+- **@effect/sql-pg** — PostgreSQL driver for Effect SQL
 - **@kitajs/html** — type-safe JSX templates that render to HTML strings
 - **PostgreSQL** — users and sessions
 
@@ -72,6 +74,15 @@ npm start
 Pages live in `src/pages.tsx` and use `@kitajs/html` JSX. User-controlled text
 is rendered with the `safe` attribute, which makes `@kitajs/html` HTML-escape
 it. Trusted layout markup and CSS are emitted as-is.
+
+## Effect patterns
+
+- `src/config.ts` reads `PORT`, `HOST`, and `DATABASE_URL` with `Config`; the HTTP and SQL layers consume those configs directly.
+- `src/domain.ts` defines branded `Schema` types for usernames, passwords, session tokens, and credentials. Validation happens once at the HTTP boundary and the rest of the app uses the branded types.
+- `src/database.ts` models a user row with `Model.Class` and uses `SqlSchema` for typed queries. Lookups return `Option`, and unique violations are mapped to a domain error.
+- `src/auth.ts` exposes `Auth` as an `Effect.Service` with accessors and self-contained dependencies. Its operations are wrapped in `Effect.fn` for named traces.
+- `src/http.ts` keeps route handlers as effects and maps domain errors to HTTP responses with `Effect.catchTags`.
+- `src/main.ts` only composes the server layer and launches it. Configuration and dependencies are supplied by layers.
 
 ## Notes
 
