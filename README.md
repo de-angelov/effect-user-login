@@ -9,7 +9,7 @@ the same small application, implemented with a different effect system and web s
 
 ## What it includes
 
-- Server-rendered HTML pages
+- Server-rendered HTML pages with type-safe JSX templates
 - Registration and login forms
 - Session cookies backed by PostgreSQL
 - A protected `/secret` route
@@ -22,6 +22,7 @@ the same small application, implemented with a different effect system and web s
 - **Effect** — typed effects, dependency injection through layers, and error handling
 - **@effect/platform** — HTTP server and router
 - **@effect/sql-pg** — PostgreSQL client for Effect SQL
+- **@kitajs/html** — type-safe JSX templates that render to HTML strings
 - **PostgreSQL** — users and sessions
 
 ## Run it
@@ -65,6 +66,12 @@ npm start
 | `POST /register` | Create a user and set a session cookie   |
 | `POST /logout`   | Delete the session and clear the cookie  |
 | `GET /secret`    | Protected page; redirects when logged out |
+
+## Templates
+
+Pages live in `src/pages.tsx` and use `@kitajs/html` JSX. User-controlled text
+is rendered with the `safe` attribute, which makes `@kitajs/html` HTML-escape
+it. Trusted layout markup and CSS are emitted as-is.
 
 ## Notes
 
